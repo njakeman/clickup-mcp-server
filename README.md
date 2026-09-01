@@ -1,6 +1,6 @@
 # clickup-mcp
 
-A small MCP server for Neil's King's Digital Lab ClickUp workspace, built for
+A small MCP server for King's Digital Lab ClickUp workspace, built for
 one job: updating task status and tracking time without leaving Claude (or any
 other MCP client). Auth is a personal API token, so nothing is installed or
 authorised at the ClickUp workspace level.
