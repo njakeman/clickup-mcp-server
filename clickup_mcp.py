@@ -123,6 +123,9 @@ ClickUp server for Neil's King's Digital Lab (KDL) workspace. Conventions:
   items within that section's text.
 - Notes on tasks are ClickUp comments: clickup_add_comment writes one,
   clickup_get_comments reads recent ones.
+- clickup_list_tasks takes person="Paul" for tasks assigned to a colleague
+  (workspace-wide if no list named; newest first by creation date - ClickUp
+  records no "date assigned").
 - clickup_time_report takes person="Geoffroy" to report a colleague's time
   (permissions permitting); clickup_get_task's "tracked" figure is the total
   across everyone. Neither is limited to Neil's own time.
@@ -783,14 +786,21 @@ def clickup_list_tasks(
     include_closed: bool = False,
     subtasks: bool = False,
     assigned_to_me: bool = False,
+    person: str | None = None,
+    newest_first: bool = False,
     team_id: str | None = None,
 ) -> str:
     """List tasks in a list, a whole project (folder), or a space.
 
     list_name: a list, a PROJECT name (all its lists in one call), a space,
-    or an id. Defaults to CLICKUP_DEFAULT_LIST.
-    statuses: comma separated status names to filter by, e.g. "in progress,open".
-    Leave empty for all open tasks.
+    or an id. Defaults to CLICKUP_DEFAULT_LIST - EXCEPT when person is given
+    with no list_name, which searches the whole workspace.
+    statuses: comma separated status names, e.g. "in progress,open". Empty =
+    all open tasks.
+    person: a colleague's name/email - only tasks assigned to them. ClickUp
+    has no "date assigned", so newest_first (creation date, newest first) is
+    the closest proxy for recent assignments and is turned on automatically
+    with person.
     """
     params: list[tuple[str, str]] = []
     if statuses:
@@ -800,16 +810,25 @@ def clickup_list_tasks(
         params.append(("include_closed", "true"))
     if subtasks:
         params.append(("subtasks", "true"))
-    if assigned_to_me:
+    who = None
+    if person:
+        who = _resolve_person(person, team_id)
+        params.append(("assignees[]", who["id"]))
+        newest_first = True
+    elif assigned_to_me:
         me = _request("GET", "/user").get("user", {}).get("id")
         if me:
             params.append(("assignees[]", str(me)))
+    if newest_first:
+        params += [("order_by", "created"), ("reverse", "true")]
 
     sc = _resolve_scope(list_name, team_id) if list_name else None
     if sc and sc["kind"] == "folder":
         path, extra = f"/team/{_team(team_id)}/task", [("project_ids[]", sc["id"])]
     elif sc and sc["kind"] == "space":
         path, extra = f"/team/{_team(team_id)}/task", [("space_ids[]", sc["id"])]
+    elif sc is None and who:
+        path, extra = f"/team/{_team(team_id)}/task", []  # whole workspace
     else:
         path, extra = f"/list/{_list(sc['id'] if sc else None)}/task", []
     tasks: list[dict[str, Any]] = []
@@ -820,9 +839,15 @@ def clickup_list_tasks(
         if data.get("last_page") or len(batch) < 100:
             break
     if not tasks:
-        return "No tasks matched."
-    return (f"{len(tasks)} task(s). {_url_rule('task')}\n"
-            + "\n".join("  " + _task_line(t) for t in tasks))
+        extra_note = (" (Assignee filters need your ClickUp role to see their tasks;"
+                      " also try include_closed=true.)" if who else "")
+        return "No tasks matched." + extra_note
+    label = f" assigned to {who['username']}" if who else ""
+    def _line(t):
+        created = _fmt_ms(t.get("date_created"))[:10] if t.get("date_created") else ""
+        return "  " + _task_line(t) + (f"  created {created}" if newest_first and created else "")
+    return (f"{len(tasks)} task(s){label}. {_url_rule('task')}\n"
+            + "\n".join(_line(t) for t in tasks))
 
 
 @tool

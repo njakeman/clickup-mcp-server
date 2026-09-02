@@ -223,6 +223,137 @@ model proves better at tool-driving, add a second command with
 The server instructions also recognise a plain `cu:` prefix, for clients
 without commands.
 
+
+## Colleague setup — opencode + the ClickUp server on the KCL AI platform
+
+A step-by-step for KDL colleagues. End state: you type `/cu add 20 mins to
+K05` in a terminal and it happens in ClickUp as you, with the model running
+on KCL's own AI platform (arc models), so prompts stay on KCL infrastructure.
+The ClickUp API itself is ClickUp's cloud, whoever drives it.
+
+Everything here uses *your own* ClickUp token: actions appear in ClickUp as
+you, with your permissions, exactly as if you had clicked them.
+
+### 1. Get the server file
+
+Copy `clickup_mcp.py` from <REPO LOCATION - Neil to fill in> into a folder of
+your own, e.g. `C:\Users\<you>\Repos\clickup-mcp\`.
+
+### 2. Install uv (runs the server, no Python setup needed)
+
+Check with `uv --version` in PowerShell; if missing, install from
+https://docs.astral.sh/uv/ . uv resolves the server's dependencies on first
+run — nothing is installed into a system Python.
+
+### 3. Generate your ClickUp token
+
+In ClickUp: your avatar (top right) → Settings → Apps → API Token →
+Generate. It starts `pk_`. Treat it like a password: it never expires and
+carries all your ClickUp permissions. Don't put it in chat logs, documents,
+or anything committed to git.
+
+### 4. Set environment variables (Windows, User scope)
+
+Either PowerShell:
+
+```powershell
+[Environment]::SetEnvironmentVariable("CLICKUP_TOKEN", "pk_your_token", "User")
+[Environment]::SetEnvironmentVariable("CLICKUP_TEAM_ID", "26475560", "User")
+```
+
+or the Environment Variables dialogue (User variables pane — no quotes
+around values). Optionally add `CLICKUP_DEFAULT_LIST` with the id of the
+list you use most (the number after `/li/` in its URL). Open a NEW terminal
+afterwards — existing ones keep the old environment.
+
+*(macOS/Linux: export the same variables in your shell profile.)*
+
+### 5. Self-test before anything else
+
+```powershell
+uv run --script C:\Users\<you>\Repos\clickup-mcp\clickup_mcp.py --selftest
+```
+
+It should name you and the King's Digital Lab workspace. If it fails with a
+network/TLS error on the KCL network, see "When it breaks" above (proxy CA
+bundle). Don't continue until this passes.
+
+### 6. Install and configure opencode
+
+Install opencode (https://opencode.ai). Then edit the global config —
+`~/.config/opencode/opencode.json` (create it if absent), merging in:
+
+```jsonc
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "kcl/arc:apex",
+  "provider": {
+    "kcl": {
+      "name": "KCL",
+      "npm": "@ai-sdk/openai-compatible",
+      "options": {
+        "baseURL": "https://api.ai.create.kcl.ac.uk/v1",
+        "apiKey": "{env:KCL_AI_API_KEY}"
+      },
+      "models": {
+        "arc:apex": { "name": "Apex" },
+        "arc:nexus": { "name": "Nexus" },
+        "arc:lite": { "name": "Lite" }
+      }
+    }
+  },
+  "mcp": {
+    "clickup": {
+      "type": "local",
+      "enabled": true,
+      "command": ["uv", "run", "--script", "C:\\Users\\<you>\\Repos\\clickup-mcp\\clickup_mcp.py"]
+    }
+  }
+}
+```
+
+Notes:
+- You need a KCL AI platform key: <HOW TO OBTAIN - Neil to fill in>. Set it
+  as a `KCL_AI_API_KEY` user environment variable (step 4 shows how); the
+  `{env:...}` syntax reads it at load — do not paste the key into the file.
+- `model: "kcl/arc:apex"` makes Apex the default; pick a lighter arc model
+  if you prefer and use Apex per-session.
+- The `mcp` block shape above matches current opencode releases; some
+  versions want it nested as `mcp.servers.clickup` instead — if opencode
+  complains "Configuration is invalid", try the other nesting; the error
+  message names the offending key.
+- JSON needs doubled backslashes in Windows paths.
+
+### 7. Install the /cu command
+
+Copy `cu.md` into `~/.config/opencode/commands/` (create the folder if
+needed). This routes `/cu <request>` to the ClickUp tools explicitly, so you
+can be terse without the model wandering off to answer from files.
+
+### 8. Smoke test, in order
+
+Start `opencode` in any folder and run these one at a time:
+
+1. `/cu check the clickup connection` — should name you and the workspace.
+2. `/cu what does K05 match?` — read-only name resolution.
+3. `/cu add 5 mins to <a task of yours>, description "setup test"` — first
+   real write. Verify the entry in the ClickUp UI, not just the reply.
+4. `/cu list my time entries today in detail` then
+   `/cu delete time entry <id>` — confirms undo works; it previews first and
+   asks before deleting. Your test entry is now cleaned up.
+
+### Expectations worth knowing
+
+- Ambiguous names are refused, with candidates listed — say which you meant
+  (or name the project: "Meetings in Musical Lives"). This is deliberate.
+- Structural changes (create task, delete, due date, assignee) always show a
+  preview and wait for your yes.
+- Everything you write is attributed to you in ClickUp, immediately, exactly
+  like the UI. The server adds no rate of its own - be as careful as you
+  would be clicking.
+- Time reports for colleagues (`person=`) work only if your ClickUp role may
+  view their entries.
+
 ## Client registration
 
 - **Claude Code**: `claude mcp add clickup -- uv run --script <path>\clickup_mcp.py`
