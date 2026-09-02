@@ -236,7 +236,7 @@ you, with your permissions, exactly as if you had clicked them.
 
 ### 1. Get the server file
 
-Copy `clickup_mcp.py` from <REPO LOCATION - Neil to fill in> into a folder of
+Copy `clickup_mcp.py` from [here](https://github.com/kingsdigitallab/clickup-mcp-server) into a folder of
 your own, e.g. `C:\Users\<you>\Repos\clickup-mcp\`.
 
 ### 2. Install uv (runs the server, no Python setup needed)
@@ -313,7 +313,7 @@ Install opencode (https://opencode.ai). Then edit the global config —
 ```
 
 Notes:
-- You need a KCL AI platform key: <HOW TO OBTAIN - Neil to fill in>. Set it
+- You need a KCL AI platform key: Set it
   as a `KCL_AI_API_KEY` user environment variable (step 4 shows how); the
   `{env:...}` syntax reads it at load — do not paste the key into the file.
 - `model: "kcl/arc:apex"` makes Apex the default; pick a lighter arc model
