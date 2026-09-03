@@ -12,7 +12,8 @@ never appears in tool arguments or output, so it cannot leak into a transcript.
 Environment variables
 ---------------------
 CLICKUP_TOKEN         (required)  personal API token, starts with pk_
-CLICKUP_TEAM_ID       (optional)  default workspace id; avoids passing it every call
+CLICKUP_TEAM_ID       (required)  workspace id (26475560 for KDL) - the only
+                                  way to name the workspace since tools take no team_id
 CLICKUP_DEFAULT_LIST  (optional)  default list id for task lookups
 CLICKUP_CA_BUNDLE     (optional)  path to a PEM bundle, for networks that
                                   intercept TLS (see the handoff brief)
@@ -101,56 +102,68 @@ def _http() -> httpx.Client:
     return _client
 
 _INSTRUCTIONS = """\
-ClickUp server for Neil's King's Digital Lab (KDL) workspace. Conventions:
+ClickUp server for Neil's King's Digital Lab (KDL) workspace.
 
-- Active projects live in the "Evolutionary development" space (say "Evo Dev").
-  Time is almost always logged there. "Feasibility" holds pre-project work;
-  "Early concept" holds high-level enquiries. When a task or list name is
-  ambiguous across spaces, Evo Dev is the likeliest intent - but never guess:
-  the tools refuse ambiguous writes and list candidates; relay those.
-- Some tasks follow a K## (milestone) or PR## (project requirement) naming
-  convention and those fragments resolve directly - but this is loose, not a
-  rule. Plenty of tasks have only a verbose title ("Review data dashboard
-  application with centre leads"). For a vague request like "the task about
-  Y in project X", list the project's tasks with clickup_list_tasks and judge
-  which title best matches the activity; name your choice to Neil before
-  writing anything to it.
-- Each Evo Dev project has a Documents area (meetings, emails) including a
-  Project Review Record ("PRR"). PRRs contain embedded tables, and narrative
-  sections labelled INCREMENT 1, INCREMENT 2, ... The NEWEST increment sits
-  nearest the TOP of the document (highest number first). Use clickup_read_doc
-  with section="INCREMENT n" for one increment; look for to-do or action
-  items within that section's text.
-- Notes on tasks are ClickUp comments: clickup_add_comment writes one,
-  clickup_get_comments reads recent ones.
-- clickup_list_tasks takes person="Paul" for tasks assigned to a colleague
-  (workspace-wide if no list named; newest first by creation date - ClickUp
-  records no "date assigned").
-- clickup_time_report takes person="Geoffroy" to report a colleague's time
-  (permissions permitting); clickup_get_task's "tracked" figure is the total
-  across everyone. Neither is limited to Neil's own time.
-- Prefer clickup_add_time over timers. Durations like "20m"/"1h30"; a bare
-  date starts entries at 09:00.
-- URLs: the tools print a task/list/doc URL on single items and write
-  confirmations, and a substitution rule (e.g. "Task URL: .../t/<id>") on
-  listings - form links from those. Never invent a URL.
-- A message beginning "cu:" or "/cu" is a ClickUp request: use these tools
-  for it rather than answering from memory or from files.
-- CONFIRM THE TARGET BEFORE ANY WRITE: resolve it with a read tool first
-  (clickup_find_task / clickup_get_task / clickup_list_lists), show Neil the
-  task or list NAME, id, project and URL together with exactly what will
-  change, and wait for a yes. Structural writes (create, delete, due date,
-  assignee) enforce this mechanically: the first call only previews; pass
-  confirm=true only after Neil has agreed to that preview.
-- Undo is id-based, never "undo last": clickup_time_report(detail=true) and
-  clickup_get_comments show ids; the delete tools preview, refuse anything
-  not Neil's own, and act only with confirm=true.
-- VERIFY EVERY WRITE: after any change (status, time, comment, description),
-  read the changed thing back from the API in the same turn - clickup_get_task
-  for status/time/description, clickup_get_comments for notes - and report the
-  resulting state to Neil (e.g. the task's new tracked total), so an error is
-  spotted immediately rather than lost in history. Report figures from the
-  read-back, never from memory of what was sent.
+WORKSPACE MAP. These are SPACES - never try to resolve a space name as a
+list; pass it as scope (list_name accepts spaces and projects):
+- "Evolutionary development" ("Evo Dev"): ACTIVE funded projects, one
+  folder (project) per project. Most time is logged here.
+- "Foundations": projects at the very earliest stage of activity.
+- "Feasibility": pre-project feasibility work. "Early concept": high-level
+  enquiries.
+- "Post-project": past projects - look here for maintenance, service-level
+  (SLA) and retirement questions.
+- "Business and operations": routine and ad hoc NON-project activity. A
+  request that is clearly not about a project belongs here - check this
+  space before concluding a task does not exist.
+- "Engagement and impact": KDL's wider research-services role, internal
+  processes/procedures, and the research themes (Data Visualisation,
+  Digital Creativity, Indigenous DH, AI/ML). "10% time" is every staff
+  member's allocation for personal development and experimentation
+  (sometimes leading to new funding/collaborations).
+
+TIMEBOXES. Timebox lists hold the priority tasks for a ~2-week planning
+window. Membership is believed to be driven by the "Ready for Timebox"
+field (yes/no - visible in get_task's fields) together with the task's end
+date; treat that mechanism as Neil's working theory, not doctrine.
+Dashboards (a "Ready for Timebox" one matters for planning) live in
+ClickUp's Dashboards section and are NOT reachable through this API - say
+so and point Neil at the ClickUp UI rather than inventing figures.
+
+10% TIME. Personal development/experimentation time is logged to the
+person's own CURRENT 10% task, named like "10% Work <year> - <first name>".
+Resolve it by name for the current year (clickup_find_task "10% Work") -
+never a remembered id, since a new task appears each year.
+
+KEY LISTS. "Pipeline Planning Meetings": weekly Monday discussion of new
+project potential; each meeting is a dated doc/page like "2026-08-10
+Pipeline Planning Meeting" - find via clickup_list_docs("pipeline") or
+clickup_doc_outline, then read the dated page. "Team Meetings": likewise
+for team meetings.
+
+NAMING. K## (milestone) / PR## (requirement) prefixes resolve directly but
+are loose - many tasks have only verbose titles. For "the task about Y in
+X", list X's tasks and judge; name your choice to Neil before writing.
+
+DOCS. Each Evo Dev project's Documents area includes a Project Review
+Record ("PRR"): sections INCREMENT 1, 2, ... with the NEWEST increment
+nearest the TOP. read_doc(section="INCREMENT n") reads one; look for
+to-dos in it.
+
+PEOPLE. list_tasks(person=...) = a colleague's assigned tasks;
+time_report(person=...) = their time, permissions permitting. get_task's
+"tracked" totals everyone.
+
+WRITES. Prefer clickup_add_time; round durations to the nearest 10 minutes
+unless told otherwise; bare dates start entries at 09:00. Before ANY
+write, resolve the target with a read tool, show Neil its name, id,
+project and URL plus the exact change, and wait for a yes (structural
+writes also enforce a preview/confirm=true cycle). After every write, read
+it back and report the resulting state from the read-back, never from
+memory. Undo is id-based via the delete tools, never "undo last".
+
+URLS. Use the URLs the tools print (listings give a substitution rule);
+never invent one. A message starting "cu:" or "/cu" is a ClickUp request.
 """
 
 try:
@@ -244,7 +257,7 @@ def _request(method: str, path: str, **kw: Any) -> Any:
     )
 
 
-def _team(team_id: str | None) -> str:
+def _team(team_id: str | None = None) -> str:
     tid = (team_id or DEFAULT_TEAM).strip()
     if not tid:
         raise ClickUpError(
@@ -364,6 +377,7 @@ _ID_RE = re.compile(r"^[0-9a-z]{6,12}$")
 
 
 _LIST_CACHE: list[dict[str, str]] | None = None
+_FOLDER_CACHE: dict[str, dict[str, str]] | None = None  # name -> {id, space}
 
 
 def _all_lists(team_id: str | None = None) -> list[dict[str, str]]:
@@ -372,14 +386,16 @@ def _all_lists(team_id: str | None = None) -> list[dict[str, str]]:
     Walked once per process and cached - the hierarchy rarely changes inside a
     session, and re-walking it on every lookup would be wasteful.
     """
-    global _LIST_CACHE
+    global _LIST_CACHE, _FOLDER_CACHE
     if _LIST_CACHE is not None:
         return _LIST_CACHE
 
     out: list[dict[str, str]] = []
-    spaces = _request("GET", f"/team/{_team(team_id)}/space").get("spaces") or []
+    folders: dict[str, dict[str, str]] = {"__spaces__": {}}
+    spaces = _request("GET", f"/team/{_team()}/space").get("spaces") or []
     for sp in spaces:
         sid, sname = str(sp.get("id")), sp.get("name") or ""
+        folders["__spaces__"][sname] = sid
 
         # Lists sitting directly in the space, outside any folder
         for l in _request("GET", f"/space/{sid}/list").get("lists") or []:
@@ -389,6 +405,7 @@ def _all_lists(team_id: str | None = None) -> list[dict[str, str]]:
         # Lists inside folders. Some responses nest them, some do not.
         for f in _request("GET", f"/space/{sid}/folder").get("folders") or []:
             fid, fname = str(f.get("id")), f.get("name") or ""
+            folders[fname] = {"id": fid, "space": sname}
             lists = f.get("lists")
             if lists is None:
                 lists = _request("GET", f"/folder/{fid}/list").get("lists") or []
@@ -397,6 +414,7 @@ def _all_lists(team_id: str | None = None) -> list[dict[str, str]]:
                             "folder": fname, "space": sname})
 
     _LIST_CACHE = out
+    _FOLDER_CACHE = folders
     return out
 
 
@@ -412,7 +430,7 @@ def _resolve_list(ref: str | None, team_id: str | None = None) -> str | None:
     if r.isdigit():
         return r
 
-    lists = _all_lists(team_id)
+    lists = _all_lists()
 
     if "/" in r:
         left, right = (x.strip().lower() for x in r.split("/", 1))
@@ -442,22 +460,11 @@ def _resolve_list(ref: str | None, team_id: str | None = None) -> str | None:
     return hits[0]["id"]
 
 
-_FOLDER_CACHE: dict[str, dict[str, str]] | None = None  # name -> {id, space}
-
-
 def _folders(team_id: str | None = None) -> dict[str, dict[str, str]]:
-    """Folder (project) names to ids, derived from the list walk."""
-    global _FOLDER_CACHE
+    """Folder (project) and space names to ids. Filled by _all_lists' walk."""
     if _FOLDER_CACHE is None:
-        out: dict[str, dict[str, str]] = {}
-        # _all_lists does not keep folder ids; walk folders directly (cached).
-        for sp in _request("GET", f"/team/{_team(team_id)}/space").get("spaces") or []:
-            sid, sname = str(sp.get("id")), sp.get("name") or ""
-            out.setdefault("__spaces__", {})[sname] = sid
-            for f in _request("GET", f"/space/{sid}/folder").get("folders") or []:
-                out[f.get("name") or ""] = {"id": str(f.get("id")), "space": sname}
-        _FOLDER_CACHE = out
-    return _FOLDER_CACHE
+        _all_lists()
+    return _FOLDER_CACHE or {"__spaces__": {}}
 
 
 def _resolve_scope(ref: str | None, team_id: str | None = None) -> dict[str, str] | None:
@@ -474,7 +481,7 @@ def _resolve_scope(ref: str | None, team_id: str | None = None) -> dict[str, str
     if r.isdigit():
         return {"kind": "list", "id": r, "name": r}
     q = r.lower()
-    folders = _folders(team_id)
+    folders = _folders()
     spaces = folders.get("__spaces__", {})
 
     fx = [(n, v) for n, v in folders.items() if n != "__spaces__" and n.lower() == q]
@@ -484,7 +491,7 @@ def _resolve_scope(ref: str | None, team_id: str | None = None) -> dict[str, str
     if len(sx) == 1:
         return {"kind": "space", "id": sx[0][1], "name": sx[0][0]}
 
-    lists = _all_lists(team_id)
+    lists = _all_lists()
     lx = [l for l in lists if l["name"].lower() == q]
     if len(lx) == 1:
         return {"kind": "list", "id": lx[0]["id"], "name": lx[0]["name"]}
@@ -502,7 +509,7 @@ def _resolve_scope(ref: str | None, team_id: str | None = None) -> dict[str, str
     raise ClickUpError(f"'{ref}' matched {len(cands)} places. Say which:\n" + "\n".join(cands[:15]))
 
 
-def _search_tasks(query: str, list_id: str | None, team_id: str | None) -> list[dict[str, Any]]:
+def _search_tasks(query: str, list_id: str | None = None, team_id: str | None = None) -> list[dict[str, Any]]:
     """Find candidate tasks by name.
 
     If a list is named, search only that list - and without an assignee filter,
@@ -533,7 +540,7 @@ def _search_tasks(query: str, list_id: str | None, team_id: str | None) -> list[
         me = _request("GET", "/user").get("user", {}).get("id")
         if not me:
             return []
-        tasks = _pages(f"/team/{_team(team_id)}/task", base + [("assignees[]", str(me))])
+        tasks = _pages(f"/team/{_team()}/task", base + [("assignees[]", str(me))])
 
     seen: set[str] = set()
     hits: list[dict[str, Any]] = []
@@ -545,7 +552,7 @@ def _search_tasks(query: str, list_id: str | None, team_id: str | None) -> list[
     return hits
 
 
-def _resolve_task(task: str, list_ref: str | None, team_id: str | None) -> dict[str, Any]:
+def _resolve_task(task: str, list_ref: str | None = None, team_id: str | None = None) -> dict[str, Any]:
     """Turn 'K05' or a raw id into exactly one task, or refuse.
 
     Refusing on ambiguity is deliberate: writing time or a status change to the
@@ -571,8 +578,8 @@ def _resolve_task(task: str, list_ref: str | None, team_id: str | None) -> dict[
             # a 404 (or ClickUp's occasional 401-for-unknown-id) just means
             # this was a name fragment - fall through to a name search
 
-    lid = _resolve_list(list_ref, team_id)
-    hits = _search_tasks(ref, lid, team_id)
+    lid = _resolve_list(list_ref)
+    hits = _search_tasks(ref, lid)
     if not hits:
         where = f"list {lid}" if lid else "every task assigned to you"
         raise ClickUpError(
@@ -597,15 +604,15 @@ def _url_task(task_id: str) -> str:
 
 
 def _url_list(list_id: str, team_id: str | None = None) -> str:
-    return f"{APP}/{_team(team_id)}/v/li/{list_id}"
+    return f"{APP}/{_team()}/v/li/{list_id}"
 
 
 def _url_folder(folder_id: str, team_id: str | None = None) -> str:
-    return f"{APP}/{_team(team_id)}/v/f/{folder_id}"
+    return f"{APP}/{_team()}/v/f/{folder_id}"
 
 
 def _url_doc(doc_id: str, team_id: str | None = None) -> str:
-    return f"{APP}/{_team(team_id)}/v/dc/{doc_id}"
+    return f"{APP}/{_team()}/v/dc/{doc_id}"
 
 
 def _url_rule(kind: str, team_id: str | None = None) -> str:
@@ -614,9 +621,9 @@ def _url_rule(kind: str, team_id: str | None = None) -> str:
     if kind == "task":
         return f"Task URL: {APP}/t/<id>"
     if kind == "list":
-        return f"List URL: {APP}/{_team(team_id)}/v/li/<id>"
+        return f"List URL: {APP}/{_team()}/v/li/<id>"
     if kind == "doc":
-        return f"Doc URL: {APP}/{_team(team_id)}/v/dc/<id>"
+        return f"Doc URL: {APP}/{_team()}/v/dc/<id>"
     return ""
 
 
@@ -644,7 +651,7 @@ def _members(team_id: str | None = None) -> list[dict[str, Any]]:
     if _MEMBER_CACHE is not None:
         return _MEMBER_CACHE
     out: list[dict[str, Any]] = []
-    tid = _team(team_id)
+    tid = _team()
     for team in _request("GET", "/team").get("teams") or []:
         if str(team.get("id")) != tid:
             continue
@@ -665,7 +672,7 @@ def _resolve_person(ref: str, team_id: str | None = None) -> dict[str, Any]:
     if r in ("me", "myself"):
         me = _request("GET", "/user").get("user", {})
         return {"id": str(me.get("id")), "username": me.get("username") or "me", "email": ""}
-    people = _members(team_id)
+    people = _members()
     if r.isdigit():
         for p in people:
             if p["id"] == r:
@@ -687,10 +694,8 @@ def _resolve_person(ref: str, team_id: str | None = None) -> dict[str, Any]:
 
 @tool
 def clickup_whoami() -> str:
-    """Check the token works and show the authenticated user and workspaces.
-
-    Run this first after setup. It is the quickest way to tell an auth
-    problem from a network problem.
+    """Check the token works: authenticated user and workspaces. Run first
+    after setup - separates auth problems from network problems.
     """
     user = _request("GET", "/user").get("user", {})
     teams = _request("GET", "/team").get("teams", [])
@@ -710,12 +715,10 @@ def clickup_whoami() -> str:
 
 
 @tool
-def clickup_list_members(query: str = "", team_id: str | None = None) -> str:
-    """Show workspace members, so a person can be named in reports.
-
-    query: optional filter on name or email, e.g. "geoff".
+def clickup_list_members(query: str = "") -> str:
+    """Workspace members (name, email, id). query filters.
     """
-    people = _members(team_id)
+    people = _members()
     q = query.strip().lower()
     if q:
         people = [p for p in people if q in p["username"].lower() or q in p["email"].lower()]
@@ -728,13 +731,11 @@ def clickup_list_members(query: str = "", team_id: str | None = None) -> str:
 
 
 @tool
-def clickup_list_lists(query: str = "", team_id: str | None = None) -> str:
-    """Show the lists in the workspace, so you can name one in plain English.
-
-    query: optional filter on the list, folder or project name, e.g. "sudan"
-    or "musical". Leave empty to see everything, grouped by project.
+def clickup_list_lists(query: str = "") -> str:
+    """The workspace's lists, grouped by project. query filters by list,
+    project, or space name.
     """
-    lists = _all_lists(team_id)
+    lists = _all_lists()
     q = query.strip().lower()
     if q:
         lists = [
@@ -748,7 +749,7 @@ def clickup_list_lists(query: str = "", team_id: str | None = None) -> str:
     for l in lists:
         grouped.setdefault(l["folder"] or l["space"], []).append(l)
 
-    out = [f"{len(lists)} list(s). {_url_rule('list', team_id)}"]
+    out = [f"{len(lists)} list(s). {_url_rule('list')}"]
     for group in sorted(grouped):
         out.append(f"\n{group}")
         for l in sorted(grouped[group], key=lambda x: x["name"]):
@@ -758,18 +759,12 @@ def clickup_list_lists(query: str = "", team_id: str | None = None) -> str:
 
 
 @tool
-def clickup_list_statuses(list_name: str | None = None, team_id: str | None = None) -> str:
-    """Show the status names a list actually accepts.
-
-    list_name: a list name ("Musical Lives"), a "project/list" pair, or an id.
-    Defaults to CLICKUP_DEFAULT_LIST.
-
-    Status names are per-list and case sensitive on write, so check here
-    before calling clickup_set_status rather than guessing.
+def clickup_list_statuses(list_name: str = "") -> str:
+    """The status names a list accepts (per-list; case sensitive on write).
     """
-    data = _request("GET", f"/list/{_list(_resolve_list(list_name, team_id))}")
+    data = _request("GET", f"/list/{_list(_resolve_list(list_name))}")
     statuses = data.get("statuses") or []
-    out = [f"Statuses for list '{data.get('name')}' ({data.get('id')}). {_url_list(str(data.get('id')), team_id)}"]
+    out = [f"Statuses for list '{data.get('name')}' ({data.get('id')}). {_url_list(str(data.get('id')))}"]
     for s in statuses:
         out.append(f"  {s.get('status')}   (type: {s.get('type')})")
     return "\n".join(out)
@@ -781,26 +776,20 @@ def clickup_list_statuses(list_name: str | None = None, team_id: str | None = No
 
 @tool
 def clickup_list_tasks(
-    list_name: str | None = None,
-    statuses: str | None = None,
+    list_name: str = "",
+    statuses: str = "",
     include_closed: bool = False,
     subtasks: bool = False,
     assigned_to_me: bool = False,
-    person: str | None = None,
+    person: str = "",
     newest_first: bool = False,
-    team_id: str | None = None,
 ) -> str:
-    """List tasks in a list, a whole project (folder), or a space.
+    """List tasks in a list, project (folder), or space.
 
-    list_name: a list, a PROJECT name (all its lists in one call), a space,
-    or an id. Defaults to CLICKUP_DEFAULT_LIST - EXCEPT when person is given
-    with no list_name, which searches the whole workspace.
-    statuses: comma separated status names, e.g. "in progress,open". Empty =
-    all open tasks.
-    person: a colleague's name/email - only tasks assigned to them. ClickUp
-    has no "date assigned", so newest_first (creation date, newest first) is
-    the closest proxy for recent assignments and is turned on automatically
-    with person.
+    list_name: list/project/space name or id; default CLICKUP_DEFAULT_LIST
+    (workspace-wide when person is given). statuses: comma-separated names.
+    person: only tasks assigned to that colleague, newest first (creation
+    date; ClickUp records no assignment date).
     """
     params: list[tuple[str, str]] = []
     if statuses:
@@ -812,7 +801,7 @@ def clickup_list_tasks(
         params.append(("subtasks", "true"))
     who = None
     if person:
-        who = _resolve_person(person, team_id)
+        who = _resolve_person(person)
         params.append(("assignees[]", who["id"]))
         newest_first = True
     elif assigned_to_me:
@@ -822,13 +811,13 @@ def clickup_list_tasks(
     if newest_first:
         params += [("order_by", "created"), ("reverse", "true")]
 
-    sc = _resolve_scope(list_name, team_id) if list_name else None
+    sc = _resolve_scope(list_name) if list_name else None
     if sc and sc["kind"] == "folder":
-        path, extra = f"/team/{_team(team_id)}/task", [("project_ids[]", sc["id"])]
+        path, extra = f"/team/{_team()}/task", [("project_ids[]", sc["id"])]
     elif sc and sc["kind"] == "space":
-        path, extra = f"/team/{_team(team_id)}/task", [("space_ids[]", sc["id"])]
+        path, extra = f"/team/{_team()}/task", [("space_ids[]", sc["id"])]
     elif sc is None and who:
-        path, extra = f"/team/{_team(team_id)}/task", []  # whole workspace
+        path, extra = f"/team/{_team()}/task", []  # whole workspace
     else:
         path, extra = f"/list/{_list(sc['id'] if sc else None)}/task", []
     tasks: list[dict[str, Any]] = []
@@ -853,16 +842,13 @@ def clickup_list_tasks(
 @tool
 def clickup_find_task(
     query: str,
-    list_name: str | None = None,
-    team_id: str | None = None,
+    list_name: str = "",
 ) -> str:
-    """Find tasks by name, to check what a phrase resolves to before writing.
-
-    list_name: optional. Named, only that list is searched, including tasks
-    assigned to other people. Omitted, every task assigned to you across the
-    workspace is searched.
+    """Find tasks by name - check what a phrase resolves to before writing.
+    list_name scopes to one list (any assignee); default searches tasks
+    assigned to you workspace-wide.
     """
-    hits = _search_tasks(query, _resolve_list(list_name, team_id), team_id)
+    hits = _search_tasks(query, _resolve_list(list_name))
     if not hits:
         where = f"list '{list_name}'" if list_name else "tasks assigned to you"
         return f"Nothing matched '{query}' in {where}."
@@ -873,14 +859,12 @@ def clickup_find_task(
 @tool
 def clickup_get_task(
     task: str,
-    list_name: str | None = None,
-    team_id: str | None = None,
+    list_name: str = "",
 ) -> str:
-    """Show the full detail of one task, including time already tracked.
-
-    task: a name fragment ("K05"), a task id, or a pasted task URL.
+    """Full task detail: status, assignees, due, tracked time (all users),
+    custom fields, parent, subtasks, description. task: name/id/URL.
     """
-    r = _resolve_task(task, list_name, team_id)
+    r = _resolve_task(task, list_name)
     t = _request("GET", f"/task/{r['id']}", params={"include_subtasks": "true"})
     lines = [
         f"{t.get('name')}  [{t.get('id')}]",
@@ -929,19 +913,12 @@ def clickup_get_task(
 def clickup_set_status(
     task: str,
     status: str,
-    list_name: str | None = None,
-    team_id: str | None = None,
+    list_name: str = "",
 ) -> str:
-    """Set a task's status.
-
-    task:      a name fragment ("K05"), a task id, or a pasted task URL.
-    list_name: optional, to say which project the task is in.
-    status: must be one the task's list accepts - run clickup_list_statuses
-            if unsure, since the names are case sensitive on write.
-
-    Writes to ClickUp immediately. An ambiguous name writes nothing.
+    """Set a task's status. Must be one its list accepts (see
+    clickup_list_statuses; case sensitive on write). Writes immediately.
     """
-    before = _resolve_task(task, list_name, team_id)
+    before = _resolve_task(task, list_name)
     old = (before.get("status") or {}).get("status")
     t = _request("PUT", f"/task/{before['id']}", json={"status": status})
     new = (t.get("status") or {}).get("status")
@@ -953,20 +930,12 @@ def clickup_set_status(
 def clickup_append_description(
     task: str,
     text: str,
-    list_name: str | None = None,
-    team_id: str | None = None,
+    list_name: str = "",
 ) -> str:
-    """Append text to a task's description (the main descriptive text).
-
-    Append-only by design: the existing description is preserved and the new
-    text is added at the end under a dated marker. There is deliberately no
-    replace - a bad replace destroys a description, a bad append is merely
-    untidy. Rewrites belong in the ClickUp UI.
-
-    The result echoes the tail of the description as read back from the API
-    after the write, so success is verified, not assumed.
+    """Append dated text to a task's description. Append-only by design - no
+    replace; rewrites belong in the ClickUp UI. Verifies by read-back.
     """
-    t = _resolve_task(task, list_name, team_id)
+    t = _resolve_task(task, list_name)
 
     # Prefer the markdown form so existing formatting survives the round trip.
     full = _request("GET", f"/task/{t['id']}", params={"include_markdown_description": "true"})
@@ -1007,18 +976,12 @@ def clickup_add_comment(
     task: str,
     text: str,
     notify_all: bool = False,
-    list_name: str | None = None,
-    team_id: str | None = None,
+    list_name: str = "",
 ) -> str:
-    """Add a note to a task, as a ClickUp comment.
-
-    task: a name fragment, a task id, or a pasted task URL. An ambiguous name
-    writes nothing and lists the candidates - for a vague request, find the
-    task first (clickup_list_tasks / clickup_find_task), confirm the choice,
-    then comment.
-    notify_all: leave False unless the intent is to ping every watcher.
+    """Add a note (comment) to a task. task: name/id/URL; ambiguity refuses.
+    Leave notify_all false unless every watcher should be pinged.
     """
-    t = _resolve_task(task, list_name, team_id)
+    t = _resolve_task(task, list_name)
     created = _request("POST", f"/task/{t['id']}/comment",
                        json={"comment_text": text, "notify_all": notify_all})
     return (f"Comment added to '{t.get('name')}' [{t['id']}] in {_where(t)}. "
@@ -1029,11 +992,11 @@ def clickup_add_comment(
 def clickup_get_comments(
     task: str,
     limit: int = 10,
-    list_name: str | None = None,
-    team_id: str | None = None,
+    list_name: str = "",
 ) -> str:
-    """Read the most recent comments (notes) on a task, newest first."""
-    t = _resolve_task(task, list_name, team_id)
+    """Recent comments on a task, newest first, with comment ids.
+    """
+    t = _resolve_task(task, list_name)
     comments = _request("GET", f"/task/{t['id']}/comment").get("comments") or []
     if not comments:
         return f"No comments on '{t.get('name')}' [{t['id']}]."
@@ -1082,27 +1045,21 @@ def _naming_convention(names: list[str]) -> tuple[str, int, str] | None:
 def clickup_create_task(
     list_name: str,
     name: str,
-    parent: str | None = None,
-    status: str | None = None,
-    assignee: str | None = None,
+    parent: str = "",
+    status: str = "",
+    assignee: str = "",
     description: str = "",
     confirm: bool = False,
-    team_id: str | None = None,
 ) -> str:
-    """Create a task (or a subtask, via parent) in a list. Two-phase.
-
-    First call returns a PREVIEW: the resolved list, parent, and a check of
-    the name against the destination's naming convention (e.g. "K05 - Title");
-    a name that breaks a clear convention is refused with the next free
-    number suggested. Nothing is written until confirm=true.
-
-    parent:   a task name fragment/id to create a subtask under.
-    assignee: a member name fragment/email.
+    """Create a task, or a subtask via parent. TWO-PHASE: the first call only
+    previews and checks the destination's naming convention (a name that
+    breaks it is refused with the next free number suggested); nothing is
+    written until confirm=true.
     """
-    lid = _list(_resolve_list(list_name, team_id))
+    lid = _list(_resolve_list(list_name))
     listinfo = _request("GET", f"/list/{lid}")
-    ptask = _resolve_task(parent, list_name, team_id) if parent else None
-    who = _resolve_person(assignee, team_id) if assignee else None
+    ptask = _resolve_task(parent, list_name) if parent else None
+    who = _resolve_person(assignee) if assignee else None
 
     # Convention check against siblings: the list's top-level tasks, or the
     # parent's existing subtasks.
@@ -1128,7 +1085,7 @@ def clickup_create_task(
         conv_note = f"follows convention {prefix}## (next free was {prefix}{nxt:02d})"
 
     target = (
-        f"  list:    {listinfo.get('name')} [{lid}]  {_url_list(lid, team_id)}\n"
+        f"  list:    {listinfo.get('name')} [{lid}]  {_url_list(lid)}\n"
         + (f"  parent:  {ptask.get('name')} [{ptask['id']}]  {_url_task(ptask['id'])}\n" if ptask else "")
         + f"  name:    {name.strip()}  ({conv_note})\n"
         + (f"  status:  {status}\n" if status else "")
@@ -1158,18 +1115,15 @@ def clickup_create_task(
 @tool
 def clickup_set_due(
     task: str,
-    due: str | None,
+    due: str,
     confirm: bool = False,
-    list_name: str | None = None,
-    team_id: str | None = None,
+    list_name: str = "",
 ) -> str:
-    """Set (or clear, with due=None / "none") a task's due date. Two-phase.
-
-    due: "YYYY-MM-DD", "today", "yesterday", "-3d" (or "+14d" style is not
-    supported - give a date). First call previews; confirm=true writes.
+    """Set, or clear with due="none", a task's due date. Two-phase: previews
+    until confirm=true.
     """
-    t = _resolve_task(task, list_name, team_id)
-    clear = due is None or str(due).strip().lower() in ("none", "clear", "")
+    t = _resolve_task(task, list_name)
+    clear = str(due).strip().lower() in ("none", "clear", "")
     new_ms = None if clear else _ms(str(due))
     old = _fmt_ms(t["due_date"]) if t.get("due_date") else "none"
     new_txt = "none" if clear else _fmt_ms(new_ms)[:10]
@@ -1188,12 +1142,13 @@ def clickup_assign(
     person: str,
     remove: bool = False,
     confirm: bool = False,
-    list_name: str | None = None,
-    team_id: str | None = None,
+    list_name: str = "",
 ) -> str:
-    """Add (or remove, with remove=true) an assignee on a task. Two-phase."""
-    t = _resolve_task(task, list_name, team_id)
-    who = _resolve_person(person, team_id)
+    """Add, or with remove=true remove, an assignee on a task. Two-phase:
+    previews until confirm=true.
+    """
+    t = _resolve_task(task, list_name)
+    who = _resolve_person(person)
     current = ", ".join(a.get("username", "?") for a in t.get("assignees") or []) or "unassigned"
     verb = "remove" if remove else "add"
     if not confirm:
@@ -1207,14 +1162,12 @@ def clickup_assign(
 
 
 @tool
-def clickup_delete_time_entry(entry_id: str, confirm: bool = False, team_id: str | None = None) -> str:
-    """Delete one of YOUR OWN time entries by id. Two-phase.
-
-    Find ids with clickup_time_report(detail=true). The first call shows what
-    would be deleted; confirm=true deletes. Entries belonging to anyone else
-    are refused outright.
+def clickup_delete_time_entry(entry_id: str, confirm: bool = False) -> str:
+    """Delete one of YOUR OWN time entries by id (ids via
+    clickup_time_report detail=true). Two-phase: previews until
+    confirm=true; others' entries are refused.
     """
-    tid = _team(team_id)
+    tid = _team()
     data = _request("GET", f"/team/{tid}/time_entries/{entry_id}").get("data") or {}
     if not data:
         raise ClickUpError(f"No time entry with id {entry_id}.")
@@ -1245,14 +1198,12 @@ def clickup_delete_comment(
     task: str,
     comment_id: str,
     confirm: bool = False,
-    list_name: str | None = None,
-    team_id: str | None = None,
+    list_name: str = "",
 ) -> str:
-    """Delete one of YOUR OWN comments on a task by id. Two-phase.
-
-    Ids are shown by clickup_get_comments. Others' comments are refused.
+    """Delete one of YOUR OWN comments by id (ids shown by
+    clickup_get_comments). Two-phase: previews until confirm=true.
     """
-    t = _resolve_task(task, list_name, team_id)
+    t = _resolve_task(task, list_name)
     comments = _request("GET", f"/task/{t['id']}/comment").get("comments") or []
     c = next((x for x in comments if str(x.get("id")) == str(comment_id)), None)
     if not c:
@@ -1280,32 +1231,22 @@ def clickup_delete_comment(
 def clickup_add_time(
     task: str,
     duration: str,
-    when: str | None = None,
+    when: str = "",
     description: str = "",
     billable: bool = False,
-    list_name: str | None = None,
-    team_id: str | None = None,
+    list_name: str = "",
 ) -> str:
-    """Add time to a task in one step. The main way to log work.
+    """Add time to a task in one step - the main way to log work.
 
-    Use this rather than timers - nothing has to be started or remembered.
-
-    task:      a name fragment ("K05"), a task id, or a pasted task URL.
-    list_name: optional, to say which project the task is in - "Musical Lives",
-               or "Sudan Memory/Backlog" when a list name repeats. Without it,
-               every task assigned to you is searched.
-    duration: "20", "20m", "20 mins", "1h30", "1.5h", "2 hours 15".
-    when:     "today", "yesterday", "-3d" or "YYYY-MM-DD". Defaults to the
-              period just ended, i.e. now minus the duration.
-
-    If the name matches more than one task, nothing is written and the
-    candidates are listed instead.
+    task: name fragment, id, or URL (ambiguous names refuse and list
+    candidates). duration: "20m", "1h30", "1.5h". when: "today",
+    "yesterday", "-3d", or a date; default = the period just worked.
     """
     # Parse the duration first: a typo should fail immediately rather than
     # after two or three API calls have gone looking for the task.
     mins = _minutes(duration)
     duration_ms = mins * 60 * 1000
-    t = _resolve_task(task, list_name, team_id)
+    t = _resolve_task(task, list_name)
 
     if when:
         start_ms = _ms(when)
@@ -1325,7 +1266,7 @@ def clickup_add_time(
     }
     if description:
         body["description"] = description
-    created = _request("POST", f"/team/{_team(team_id)}/time_entries", json=body)
+    created = _request("POST", f"/team/{_team()}/time_entries", json=body)
     eid = (created.get("data") or {}).get("id") or created.get("id") or "?"
 
     return (
@@ -1339,26 +1280,23 @@ def clickup_start_timer(
     task: str,
     description: str = "",
     billable: bool = False,
-    list_name: str | None = None,
-    team_id: str | None = None,
+    list_name: str = "",
 ) -> str:
-    """Start a running timer. Prefer clickup_add_time unless you want a live timer.
-
-    Remember this has to be stopped. clickup_current_timer shows a forgotten one.
+    """Start a live timer (prefer clickup_add_time; timers must be stopped).
     """
-    t = _resolve_task(task, list_name, team_id)
+    t = _resolve_task(task, list_name)
     body: dict[str, Any] = {"tid": t["id"], "billable": billable}
     if description:
         body["description"] = description
-    data = _request("POST", f"/team/{_team(team_id)}/time_entries/start", json=body).get("data", {})
+    data = _request("POST", f"/team/{_team()}/time_entries/start", json=body).get("data", {})
     name = (data.get("task") or {}).get("name") or t.get("name")
     return f"Timer started on '{name}' in {_where(t)} at {_fmt_ms(data.get('start'))}.\n{_url_task(t['id'])}"
 
 
 @tool
-def clickup_stop_timer(team_id: str | None = None) -> str:
+def clickup_stop_timer() -> str:
     """Stop the timer currently running for the authenticated user."""
-    data = _request("POST", f"/team/{_team(team_id)}/time_entries/stop").get("data", {})
+    data = _request("POST", f"/team/{_team()}/time_entries/stop").get("data", {})
     if not data:
         return "No timer was running."
     name = (data.get("task") or {}).get("name", "unknown task")
@@ -1366,9 +1304,9 @@ def clickup_stop_timer(team_id: str | None = None) -> str:
 
 
 @tool
-def clickup_current_timer(team_id: str | None = None) -> str:
+def clickup_current_timer() -> str:
     """Show the timer currently running, if any."""
-    data = _request("GET", f"/team/{_team(team_id)}/time_entries/current").get("data")
+    data = _request("GET", f"/team/{_team()}/time_entries/current").get("data")
     if not data:
         return "No timer running."
     name = (data.get("task") or {}).get("name", "unknown task")
@@ -1383,26 +1321,21 @@ def clickup_current_timer(team_id: str | None = None) -> str:
 
 @tool
 def clickup_time_report(
-    start: str | None = None,
-    end: str | None = None,
-    list_name: str | None = None,
-    task: str | None = None,
-    person: str | None = None,
+    start: str = "",
+    end: str = "",
+    list_name: str = "",
+    task: str = "",
+    person: str = "",
     detail: bool = False,
-    team_id: str | None = None,
 ) -> str:
-    """Summarise tracked time over a date range, grouped by task.
+    """Tracked time over a range, grouped by task (ids and list names in rows).
 
-    Defaults to the last 7 days for the authenticated user.
-    list_name: a list, a PROJECT (folder - covers all its lists), or a space.
-               "Palaeographic Annotator" is one call, not one per list.
-    person:    a colleague's name fragment or email ("Geoffroy"), subject to
-               ClickUp permissions. Ambiguous names refuse and list matches.
-    detail:    also list every entry with its id - needed to delete one.
-    Rows carry task ids and list names, so no follow-up lookups are needed.
+    start/end: date words or YYYY-MM-DD; default last 7 days. list_name:
+    list, project, or space. person: a colleague, permissions permitting.
+    detail=true lists individual entries with ids (needed to delete one).
     """
-    who = _resolve_person(person, team_id) if person else None
-    end_ms = _ms(end)
+    who = _resolve_person(person) if person else None
+    end_ms = _ms(end or None)
     if end_ms is not None and re.fullmatch(
         r"\d{4}-\d{2}-\d{2}|today|yesterday", (end or "").strip().lower()
     ):
@@ -1410,19 +1343,19 @@ def clickup_time_report(
         # morning - otherwise the day's entries are silently excluded.
         end_ms += 24 * 60 * 60 * 1000 - 1
     params: dict[str, Any] = {
-        "start_date": _ms(start, default_days_back=7),
+        "start_date": _ms(start or None, default_days_back=7),
         "end_date": end_ms or int(time.time() * 1000),
     }
     if who:
         params["assignee"] = who["id"]
     params["include_location_names"] = "true"
     if task:
-        params["task_id"] = _resolve_task(task, list_name, team_id)["id"]
+        params["task_id"] = _resolve_task(task, list_name)["id"]
     elif list_name:
-        sc = _resolve_scope(list_name, team_id)
+        sc = _resolve_scope(list_name)
         if sc:
             params[{"list": "list_id", "folder": "folder_id", "space": "space_id"}[sc["kind"]]] = sc["id"]
-    entries = _request("GET", f"/team/{_team(team_id)}/time_entries", params=params).get("data", [])
+    entries = _request("GET", f"/team/{_team()}/time_entries", params=params).get("data", [])
     label = f" for {who['username']}" if who else ""
     if not entries:
         return (f"No time entries{label} in that range." +
@@ -1484,7 +1417,7 @@ def _all_docs(team_id: str | None = None) -> list[dict[str, Any]]:
         params: dict[str, Any] = {"limit": 100}
         if cursor:
             params["cursor"] = cursor
-        data = _request("GET", f"/v3/workspaces/{_team(team_id)}/docs", params=params)
+        data = _request("GET", f"/v3/workspaces/{_team()}/docs", params=params)
         batch = data.get("docs") or []
         out.extend(batch)
         cursor = data.get("next_cursor") or ""
@@ -1502,7 +1435,7 @@ def _resolve_doc(ref: str, team_id: str | None = None) -> dict[str, Any]:
     if _DOC_ID_RE.fullmatch(r.lower()):
         return {"id": r, "name": r}
 
-    docs = _all_docs(team_id)
+    docs = _all_docs()
     q = r.lower()
     hits = [d for d in docs if q in (d.get("name") or "").lower()]
     if not hits:
@@ -1525,37 +1458,34 @@ def _walk_pages(pages: list[dict[str, Any]], depth: int = 0) -> list[tuple[int, 
 
 
 @tool
-def clickup_list_docs(query: str = "", team_id: str | None = None) -> str:
-    """List the docs in the workspace - meeting notes, Project Review Records.
-
-    query: optional filter on the doc name, e.g. "review record" or "musical".
+def clickup_list_docs(query: str = "") -> str:
+    """Docs in the workspace (meeting notes, PRRs). query filters by name.
     """
-    docs = _all_docs(team_id)
+    docs = _all_docs()
     q = query.strip().lower()
     if q:
         docs = [d for d in docs if q in (d.get("name") or "").lower()]
     if not docs:
         return f"No docs matched '{query}'."
-    lines = [f"{len(docs)} doc(s). {_url_rule('doc', team_id)}"]
+    lines = [f"{len(docs)} doc(s). {_url_rule('doc')}"]
     for d in sorted(docs, key=lambda x: (x.get("name") or "").lower()):
         lines.append(f"  {d.get('name')}  [{d.get('id')}]")
     return "\n".join(lines)
 
 
 @tool
-def clickup_doc_outline(doc: str, team_id: str | None = None) -> str:
-    """Show a doc's page structure (names, nesting, size) without content.
-
-    Use before clickup_read_doc on a large doc, to pick a page or section.
+def clickup_doc_outline(doc: str) -> str:
+    """A doc's page structure - names, nesting, sizes, INCREMENTs present -
+    without content. Use before reading a large doc.
     """
-    d = _resolve_doc(doc, team_id)
-    data = _request("GET", f"/v3/workspaces/{_team(team_id)}/docs/{d['id']}/pages",
+    d = _resolve_doc(doc)
+    data = _request("GET", f"/v3/workspaces/{_team()}/docs/{d['id']}/pages",
                     params={"max_page_depth": -1, "content_format": "text/plain"})
     pages = data if isinstance(data, list) else (data.get("pages") or [])
     flat = _walk_pages(pages)
     if not flat:
         return f"Doc '{d.get('name')}' [{d['id']}] has no pages."
-    out = [f"'{d.get('name')}' [{d['id']}] - {len(flat)} page(s). {_url_doc(d['id'], team_id)}"]
+    out = [f"'{d.get('name')}' [{d['id']}] - {len(flat)} page(s). {_url_doc(d['id'])}"]
     for depth, name, content in flat:
         incs = re.findall(r"INCREMENT\s*(\d+)", content, re.I)
         inc_note = f"  increments: {', '.join(dict.fromkeys(incs))}" if incs else ""
@@ -1567,24 +1497,15 @@ def clickup_doc_outline(doc: str, team_id: str | None = None) -> str:
 def clickup_read_doc(
     doc: str,
     section: str = "",
-    team_id: str | None = None,
 ) -> str:
-    """Read a doc as markdown - the way to get at a Project Review Record.
-
-    doc:     a name fragment ("Musical Lives - Documents"), a doc id, or a
-             pasted doc URL.
-    section: optional. "INCREMENT 4" (or just "4") returns only that section:
-             from its heading to the next INCREMENT heading. PRR sections
-             accumulate bottom-up, so the latest increment is the highest
-             number. Embedded ClickUp tables may render imperfectly as
-             markdown.
-
-    Without a section, returns the whole doc (capped at ~40k characters).
+    """Read a doc as markdown. doc: name/id/URL. section="INCREMENT 4" (or
+    "4") returns only that section. Whole docs are capped; the newest PRR
+    content (top of doc) is kept.
     """
-    d = _resolve_doc(doc, team_id)
+    d = _resolve_doc(doc)
     data = _request(
         "GET",
-        f"/v3/workspaces/{_team(team_id)}/docs/{d['id']}/pages",
+        f"/v3/workspaces/{_team()}/docs/{d['id']}/pages",
         params={"max_page_depth": -1, "content_format": "text/md"},
     )
     pages = data if isinstance(data, list) else (data.get("pages") or [])
@@ -1615,7 +1536,7 @@ def clickup_read_doc(
             if num == want or f"increment {num}".strip() == section.strip().lower():
                 end = marks[i + 1][0] if i + 1 < len(marks) else len(body)
                 chunk = body[pos:end].strip()
-                return f"'{d.get('name')}' [{d['id']}], INCREMENT {num}. {_url_doc(d['id'], team_id)}\n\n{chunk}"
+                return f"'{d.get('name')}' [{d['id']}], INCREMENT {num}. {_url_doc(d['id'])}\n\n{chunk}"
         available = ", ".join(n for _, n in marks)
         return (
             f"No INCREMENT {want} in '{d.get('name')}'. "
@@ -1629,7 +1550,7 @@ def clickup_read_doc(
         body = body[:cap] + ("\n\n[... rest of doc truncated - newest "
                              "content is at the top; ask for a specific "
                              "INCREMENT to see one section in full ...]")
-    return f"'{d.get('name')}' [{d['id']}] {_url_doc(d['id'], team_id)}\n\n{body}"
+    return f"'{d.get('name')}' [{d['id']}] {_url_doc(d['id'])}\n\n{body}"
 
 
 def _selftest() -> int:

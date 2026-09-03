@@ -1,7 +1,7 @@
 # clickup-mcp
 
-A small MCP server for King's Digital Lab ClickUp workspace, built for
-one job: updating task status and tracking time without leaving OpenCode (or any
+A small MCP server for Neil's King's Digital Lab ClickUp workspace, built for
+one job: updating task status and tracking time without leaving Claude (or any
 other MCP client). Auth is a personal API token, so nothing is installed or
 authorised at the ClickUp workspace level.
 
@@ -13,7 +13,7 @@ uv run --script clickup_mcp.py --selftest   # checks token, network, auth
 ```
 
 Environment (Windows user variables; quotes around values are tolerated):
-`CLICKUP_TOKEN` (required, pk_...), `CLICKUP_TEAM_ID` (26475560),
+`CLICKUP_TOKEN` (required, pk_...), `CLICKUP_TEAM_ID` (required — 26475560),
 `CLICKUP_DEFAULT_LIST` (optional), `CLICKUP_CA_BUNDLE` (PEM path, for
 TLS-inspecting networks), `CLICKUP_INSECURE=1` (diagnostic only).
 
@@ -181,6 +181,12 @@ Project Requirements List" `901512033398` · list "_Metadata" `901504991986`.
   projects; K##/PR## naming; PRR increments accumulate bottom-up) to every
   client at the handshake. Clients that ignore them can get the same text in
   CLAUDE.md / AGENTS.md.
+- Session overhead (tool schemas + instructions) is a real cost: ~3,300
+  tokens after the Sept 2026 diet (was ~5,000). Docstrings state
+  signature-level facts only; conventions live once, in `_INSTRUCTIONS` —
+  don't duplicate between them. `team_id` was removed from tool signatures
+  (the env var covers this single-workspace lab); internal helpers still
+  accept it if multi-workspace support is ever needed.
 - Two-phase writes: keep `confirm=false` as the default and the preview as
   the only possible first-call outcome. Do not add a "skip confirmation" flag.
 - `_naming_convention` is a heuristic (≥60% of siblings share a `K##`-style
@@ -236,7 +242,7 @@ you, with your permissions, exactly as if you had clicked them.
 
 ### 1. Get the server file
 
-Copy `clickup_mcp.py` from [here](https://github.com/kingsdigitallab/clickup-mcp-server) into a folder of
+Copy `clickup_mcp.py` from <REPO LOCATION - Neil to fill in> into a folder of
 your own, e.g. `C:\Users\<you>\Repos\clickup-mcp\`.
 
 ### 2. Install uv (runs the server, no Python setup needed)
@@ -313,7 +319,7 @@ Install opencode (https://opencode.ai). Then edit the global config —
 ```
 
 Notes:
-- You need a KCL AI platform key: Set it
+- You need a KCL AI platform key: <HOW TO OBTAIN - Neil to fill in>. Set it
   as a `KCL_AI_API_KEY` user environment variable (step 4 shows how); the
   `{env:...}` syntax reads it at load — do not paste the key into the file.
 - `model: "kcl/arc:apex"` makes Apex the default; pick a lighter arc model
