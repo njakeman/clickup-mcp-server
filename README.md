@@ -5,7 +5,7 @@ one job: updating task status and tracking time without leaving Claude (or any
 other MCP client). Auth is a personal API token, so nothing is installed or
 authorised at the ClickUp workspace level.
 
-Single file, 24 tools. Dependencies are declared inline (PEP 723), so `uv`
+Single file, 25 tools. Dependencies are declared inline (PEP 723), so `uv`
 resolves them per run — nothing to install.
 
 ```powershell
@@ -59,6 +59,8 @@ A bare number means minutes.
 | "what docs are there for Musical Lives?" | Doc search by name |
 | "what happened in INCREMENT 4 of the Musical Lives PRR, any to-dos?" | Reads just that section |
 | "read the Slavery in War documents doc" | Whole doc as markdown (truncates from the bottom — the newest PRR increment sits nearest the top) |
+| "what's the structure of the NFCS doc?" | Outline with a page id per page — needed to name a parent page for a write |
+| "file this email under Email communication in the NFCS doc as 2026-10-15 reply from UKRI" | **Two-phase.** Refused unless the name is dated like its siblings (`YYYY-MM-DD title`) → preview (doc, parent page, name, content size) → you agree → page created and read back, URL printed. No API delete — remove a mistake in the ClickUp UI |
 
 ### Notes on tasks (comments)
 
@@ -156,9 +158,10 @@ Project Requirements List" `901512033398` · list "_Metadata" `901504991986`.
    no list named.
 6. **Stale hierarchy cache**: lists created mid-session appear after a client
    restart. (Docs are not cached.)
-7. **Docs API shape**: the v3 pages response was verified against docs, not
-   live. If `clickup_read_doc` says "no readable pages" on a real doc, dump
-   the raw response and check where pages nest.
+7. **Docs API shape**: the v3 pages response is a top-level list (verified
+   live, Oct 2026); `_doc_pages` also tolerates an object with a `pages` key.
+   If `clickup_read_doc` says "no readable pages" on a real doc, dump the raw
+   response and check where pages nest.
 8. **429**: surfaced with the reset header, deliberately not retried.
 9. **`uv` not on PATH for a GUI-launched client**: use the absolute path to
    `uv.exe` in that client's config.
@@ -193,9 +196,16 @@ Project Requirements List" `901512033398` · list "_Metadata" `901504991986`.
   prefix). Tune the threshold rather than removing the check.
 - `_resolve_task`/`_resolve_list`/`_resolve_scope` refuse rather than guess, and `_search_tasks`
   never prefers one list over another. Keep those properties.
-- Pagination stops at 1000 tasks / 2000 docs. Docs are read-only for now —
-  writing to a PRR is a deliberate omission until reading is proven on real
-  PRRs. Custom fields (the budget-table columns) are the likely next ask:
+- Pagination stops at 1000 tasks / 2000 docs.
+- Doc writes: `clickup_create_doc_page` only (v3 `POST .../docs/{id}/pages`),
+  two-phase, with a date-prefix convention check against sibling pages that
+  mirrors the K## check on tasks. A parent page is named by id (from
+  `clickup_doc_outline`), unique name, or the page segment of a pasted
+  `/v/dc/<doc>/<page>` URL. Editing or appending to existing pages (the v3
+  `PUT` with `content_edit_mode`) and creating whole docs are deliberate
+  omissions — appending to a PRR increment is the likely next ask. The public
+  API has no delete-page endpoint, so the confirmation says to undo in the UI.
+- Custom fields (the budget-table columns) are the likely next ask:
   discover field ids via `GET /api/v2/list/{list_id}/field` first.
 
 ## URLs
@@ -360,9 +370,57 @@ Start `opencode` in any folder and run these one at a time:
 - Time reports for colleagues (`person=`) work only if your ClickUp role may
   view their entries.
 
-## Client registration
+## Claude Code setup
 
-- **Claude Code**: `claude mcp add clickup -- uv run --script <path>\clickup_mcp.py`
+Steps 1–5 of the colleague setup above (server file, `uv`, token, environment
+variables, self-test) are the same whichever client you use. Then:
+
+### 1. Register the server
+
+Run this once from any terminal (PowerShell shown; use forward slashes on
+macOS/Linux):
+
+```powershell
+claude mcp add --scope user clickup -- uv run --script C:\Users\<you>\Repos\clickup-mcp\clickup_mcp.py
+```
+
+- `--scope user` makes it available in every project. Leave it off to register
+  it for the current directory only, or use `--scope project` to write a
+  shareable `.mcp.json` into the repo you are in.
+- The token and workspace id are read from your User environment variables, so
+  nothing secret goes into the Claude Code config. If you would rather not set
+  them globally, pass them on the command instead:
+  `claude mcp add --scope user -e CLICKUP_TOKEN=pk_... -e CLICKUP_TEAM_ID=26475560 clickup -- uv run --script ...`
+- If Claude Code was launched from a GUI that does not see `uv` on PATH, use
+  the absolute path to `uv.exe` (find it with `(Get-Command uv).Source`).
+
+Check it with `claude mcp list` — `clickup` should show as connected. Inside a
+session, `/mcp` shows the same and lists the 25 tools.
+
+### 2. Install the /cu command
+
+Copy `cu.md` into `~/.claude/commands/` (`C:\Users\<you>\.claude\commands\` on
+Windows; create the folder if needed). Restart Claude Code, then `/cu` appears
+in the slash-command list.
+
+### 3. Smoke test
+
+Same sequence as step 8 above: `/cu check the clickup connection`, a read-only
+`/cu what does K05 match?`, a 5-minute time entry you then delete by id.
+
+### Notes
+
+- Claude Code places the server's MCP `instructions` in context at the start of
+  every session, so the KDL conventions (refuse on ambiguity, read back every
+  write, two-phase structural changes) apply without any CLAUDE.md.
+- A server registered with `--scope user` lives in `~/.claude.json`; edit or
+  remove it with `claude mcp remove clickup`.
+- Changes to `clickup_mcp.py` take effect after the client restarts (or `/mcp`
+  → reconnect); the running server is not reloaded.
+
+## Client registration (summary)
+
+- **Claude Code**: `claude mcp add --scope user clickup -- uv run --script <path>\clickup_mcp.py` (details above).
 - **Claude desktop app**: see `claude_desktop_config.json` snippet below.
 - **opencode** (this version's flat schema): in `~/.config/opencode/opencode.jsonc`:
   `"mcp": {"clickup": {"type": "local", "enabled": true, "command": [...]}}`

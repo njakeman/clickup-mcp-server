@@ -148,7 +148,9 @@ X", list X's tasks and judge; name your choice to Neil before writing.
 DOCS. Each Evo Dev project's Documents area includes a Project Review
 Record ("PRR"): sections INCREMENT 1, 2, ... with the NEWEST increment
 nearest the TOP. read_doc(section="INCREMENT n") reads one; look for
-to-dos in it.
+to-dos in it. Email and meeting records are dated sub-pages ("YYYY-MM-DD
+title") under a parent page: run clickup_doc_outline to get the parent's
+page id, then clickup_create_doc_page (two-phase; no API undo).
 
 PEOPLE. list_tasks(person=...) = a colleague's assigned tasks;
 time_report(person=...) = their time, permissions permitting. get_task's
@@ -613,6 +615,10 @@ def _url_folder(folder_id: str, team_id: str | None = None) -> str:
 
 def _url_doc(doc_id: str, team_id: str | None = None) -> str:
     return f"{APP}/{_team()}/v/dc/{doc_id}"
+
+
+def _url_page(doc_id: str, page_id: str, team_id: str | None = None) -> str:
+    return f"{APP}/{_team()}/v/dc/{doc_id}/{page_id}"
 
 
 def _url_rule(kind: str, team_id: str | None = None) -> str:
@@ -1406,6 +1412,17 @@ def clickup_time_report(
 # --------------------------------------------------------------------------
 
 _DOC_ID_RE = re.compile(r"^[0-9a-z]{2,10}-[0-9]{2,12}$")  # e.g. t7z18-89235
+_DATE_PREFIX_RE = re.compile(r"^\d{4}-\d{2}-\d{2}\b")  # "2026-07-31 Informed VDR"
+
+
+def _parse_doc_ref(ref: str) -> tuple[str, str | None]:
+    """Split a doc reference into (doc part, page id or None). A pasted
+    /v/dc/<doc>/<page> URL yields both; anything else comes back unchanged."""
+    r = ref.strip()
+    m = re.search(r"/v/dc/([0-9a-z-]+)(?:/([0-9a-z-]+))?", r, re.I)
+    if m:
+        return m.group(1), m.group(2)
+    return r, None
 
 
 def _all_docs(team_id: str | None = None) -> list[dict[str, Any]]:
@@ -1428,10 +1445,7 @@ def _all_docs(team_id: str | None = None) -> list[dict[str, Any]]:
 
 def _resolve_doc(ref: str, team_id: str | None = None) -> dict[str, Any]:
     """Turn a doc name fragment, id, or pasted /v/dc/ URL into one doc."""
-    r = ref.strip()
-    m = re.search(r"/v/dc/([0-9a-z-]+)", r, re.I)
-    if m:
-        r = m.group(1)
+    r, _page = _parse_doc_ref(ref)
     if _DOC_ID_RE.fullmatch(r.lower()):
         return {"id": r, "name": r}
 
@@ -1448,13 +1462,59 @@ def _resolve_doc(ref: str, team_id: str | None = None) -> dict[str, Any]:
     return hits[0]
 
 
-def _walk_pages(pages: list[dict[str, Any]], depth: int = 0) -> list[tuple[int, str, str]]:
-    """Flatten a doc's page tree to (depth, name, content) in reading order."""
-    out: list[tuple[int, str, str]] = []
+def _doc_pages(doc_id: str, fmt: str = "text/md") -> list[dict[str, Any]]:
+    """The full page tree of a doc. The v3 response is a top-level list; an
+    object with a "pages" key is tolerated in case that changes."""
+    data = _request("GET", f"/v3/workspaces/{_team()}/docs/{doc_id}/pages",
+                    params={"max_page_depth": -1, "content_format": fmt})
+    return data if isinstance(data, list) else (data.get("pages") or [])
+
+
+def _walk_pages(pages: list[dict[str, Any]], depth: int = 0) -> list[tuple[int, dict[str, Any]]]:
+    """Flatten a doc's page tree to (depth, page) in reading order."""
+    out: list[tuple[int, dict[str, Any]]] = []
     for pg in pages or []:
-        out.append((depth, pg.get("name") or "(untitled page)", pg.get("content") or ""))
+        out.append((depth, pg))
         out.extend(_walk_pages(pg.get("pages") or [], depth + 1))
     return out
+
+
+def _page_name(pg: dict[str, Any]) -> str:
+    return pg.get("name") or "(untitled page)"
+
+
+def _resolve_page(pages: list[dict[str, Any]], ref: str) -> dict[str, Any]:
+    """Find one page in a doc's tree by id, exact name, or unique name
+    fragment. Refuses and lists candidates on ambiguity."""
+    r = ref.strip()
+    flat = [pg for _, pg in _walk_pages(pages)]
+    if _DOC_ID_RE.fullmatch(r.lower()):
+        for pg in flat:
+            if (pg.get("id") or "").lower() == r.lower():
+                return pg
+        raise ClickUpError(
+            f"No page with id {r} in this doc. Run clickup_doc_outline to see its pages."
+        )
+    q = r.lower()
+    hits = [pg for pg in flat if q in (pg.get("name") or "").lower()]
+    exact = [pg for pg in hits if (pg.get("name") or "").lower() == q]
+    if len(exact) == 1:
+        return exact[0]
+    if not hits:
+        raise ClickUpError(
+            f"No page matched '{ref}' in this doc. Run clickup_doc_outline to see its pages."
+        )
+    if len(hits) > 1:
+        lines = "\n".join(f"  {_page_name(pg)}  [{pg.get('id')}]" for pg in hits[:15])
+        raise ClickUpError(f"'{ref}' matched {len(hits)} pages. Say which:\n{lines}")
+    return hits[0]
+
+
+def _date_convention(names: list[str]) -> bool:
+    """True when sibling pages are clearly dated 'YYYY-MM-DD title' (at least
+    three, and 60% or more carry the prefix)."""
+    dated = sum(1 for n in names if _DATE_PREFIX_RE.match(n.strip()))
+    return dated >= max(3, int(0.6 * len(names)))
 
 
 @tool
@@ -1479,17 +1539,17 @@ def clickup_doc_outline(doc: str) -> str:
     without content. Use before reading a large doc.
     """
     d = _resolve_doc(doc)
-    data = _request("GET", f"/v3/workspaces/{_team()}/docs/{d['id']}/pages",
-                    params={"max_page_depth": -1, "content_format": "text/plain"})
-    pages = data if isinstance(data, list) else (data.get("pages") or [])
-    flat = _walk_pages(pages)
+    flat = _walk_pages(_doc_pages(d['id'], "text/plain"))
     if not flat:
         return f"Doc '{d.get('name')}' [{d['id']}] has no pages."
-    out = [f"'{d.get('name')}' [{d['id']}] - {len(flat)} page(s). {_url_doc(d['id'])}"]
-    for depth, name, content in flat:
+    out = [f"'{d.get('name')}' [{d['id']}] - {len(flat)} page(s). {_url_doc(d['id'])} "
+           f"(page URL: append /<page id>)"]
+    for depth, pg in flat:
+        content = pg.get("content") or ""
         incs = re.findall(r"INCREMENT\s*(\d+)", content, re.I)
         inc_note = f"  increments: {', '.join(dict.fromkeys(incs))}" if incs else ""
-        out.append(f"{'  ' * (depth + 1)}{name}  ({len(content):,} chars){inc_note}")
+        out.append(f"{'  ' * (depth + 1)}{_page_name(pg)}  [{pg.get('id')}]  "
+                   f"({len(content):,} chars){inc_note}")
     return "\n".join(out)
 
 
@@ -1503,19 +1563,15 @@ def clickup_read_doc(
     content (top of doc) is kept.
     """
     d = _resolve_doc(doc)
-    data = _request(
-        "GET",
-        f"/v3/workspaces/{_team()}/docs/{d['id']}/pages",
-        params={"max_page_depth": -1, "content_format": "text/md"},
-    )
-    pages = data if isinstance(data, list) else (data.get("pages") or [])
-    flat = _walk_pages(pages)
+    flat = _walk_pages(_doc_pages(d['id'], "text/md"))
     if not flat:
         return f"Doc '{d.get('name')}' [{d['id']}] has no readable pages."
 
     body_parts = []
-    for depth, name, content in flat:
-        body_parts.append(f"{'#' * min(depth + 1, 4)} {name}\n\n{content}".rstrip())
+    for depth, pg in flat:
+        body_parts.append(
+            f"{'#' * min(depth + 1, 4)} {_page_name(pg)}\n\n{pg.get('content') or ''}".rstrip()
+        )
     body = "\n\n".join(body_parts)
 
     if section:
@@ -1551,6 +1607,83 @@ def clickup_read_doc(
                              "content is at the top; ask for a specific "
                              "INCREMENT to see one section in full ...]")
     return f"'{d.get('name')}' [{d['id']}] {_url_doc(d['id'])}\n\n{body}"
+
+
+@tool
+def clickup_create_doc_page(
+    doc: str,
+    name: str,
+    content: str = "",
+    parent_page: str = "",
+    confirm: bool = False,
+) -> str:
+    """Create a page in a doc. parent_page: a page name, id, or the page
+    segment of a pasted /v/dc/<doc>/<page> URL (empty = doc root). content is
+    markdown. TWO-PHASE: previews and checks the siblings' YYYY-MM-DD naming
+    convention; nothing written until confirm=true. No API undo.
+    """
+    new_name = name.strip()
+    if not new_name:
+        raise ClickUpError("A page name is required.")
+    doc_part, url_page = _parse_doc_ref(doc)
+    d = _resolve_doc(doc_part)
+    pages = _doc_pages(d["id"], "text/plain")
+
+    parent = None
+    pref = parent_page.strip() or (url_page or "")
+    if pref:
+        parent = _resolve_page(pages, pref)
+    siblings = [pg.get("name") or "" for pg in ((parent.get("pages") if parent else pages) or [])]
+
+    if _date_convention(siblings):
+        if not _DATE_PREFIX_RE.match(new_name):
+            today = dt.date.today().isoformat()
+            return (
+                f"REFUSED - sibling pages here are dated 'YYYY-MM-DD <title>'. "
+                f"Suggested: '{today} {new_name}'. Nothing written."
+            )
+        conv_note = "follows the siblings' YYYY-MM-DD convention"
+    elif siblings:
+        conv_note = "no clear naming convention among sibling pages"
+    else:
+        conv_note = "first page at this level"
+
+    where = f"under '{_page_name(parent)}' [{parent['id']}]" if parent else "at the doc root"
+    snippet = content.strip().replace("\n", " ")[:120]
+    target = (
+        f"  doc:     {d.get('name')} [{d['id']}]  {_url_doc(d['id'])}\n"
+        f"  parent:  {where}\n"
+        f"  name:    {new_name}  ({conv_note})\n"
+        f"  content: {len(content):,} chars"
+        + (f" - starts: {snippet}{'...' if len(content.strip()) > 120 else ''}" if snippet else " (empty)")
+        + "\n"
+    )
+    if not confirm:
+        return f"{_PREVIEW}\nWould create page:\n{target}"
+
+    body: dict[str, Any] = {"name": new_name, "content": content, "content_format": "text/md"}
+    if parent:
+        body["parent_page_id"] = parent["id"]
+    created = _request("POST", f"/v3/workspaces/{_team()}/docs/{d['id']}/pages", json=body)
+    new_id = created.get("id") if isinstance(created, dict) else None
+
+    # Read back from the page tree - verification, not memory.
+    check = None
+    if new_id:
+        for _, pg in _walk_pages(_doc_pages(d["id"], "text/plain")):
+            if pg.get("id") == new_id:
+                check = pg
+                break
+    if not check:
+        return (
+            f"Created page {new_id or '(no id returned)'} but it did not appear in the "
+            f"read-back - check the doc in the UI. {_url_doc(d['id'])}"
+        )
+    return (
+        f"Created page '{_page_name(check)}' [{new_id}] {where} in doc '{d.get('name')}' "
+        f"({len(check.get('content') or ''):,} chars, verified in read-back). "
+        f"No API delete - remove it in the ClickUp UI if wrong. {_url_page(d['id'], new_id)}"
+    )
 
 
 def _selftest() -> int:
